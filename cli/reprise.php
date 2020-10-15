@@ -1,3 +1,4 @@
+#!/usr/bin/env php
 <?php
 /**
  * @package      local
@@ -11,7 +12,7 @@ require_once($CFG->libdir.'/clilib.php');
 
 // now get cli options
 list($options, $unrecognized) = cli_get_params(
-        ['help'=>false,  'run'=>false, 'field' => null, 'data' =>false],
+        ['help'=>false,  'run-field'=>false,  'run-data' =>false],
         ['h'=>'help']
 );
 
@@ -26,17 +27,17 @@ $help =
 
 Options:
 -h, --help               Affiche cette aide
---run                    lance la reprise des tables custom_info_* dans customfield_*
---field                  la reprise concerne les tables custom_info_category et custom_info_field. 
-						 Ne fonctionne que si la table customfield_field est vide.
---data                   la concerne les tables custom_info_data. 
+--run-field              lance la reprise des tables custom_info_category et custom_info_field
+                         (vers customfield_category et customfield_field)
+						 Ne fonctionne que si les tables cibles sont vides.
+--run-data               Lance la reprise de la table custom_info_data (LONG). 
 						 Ne fonctionne que si la table customfield_data est vide.
 
 A utiliser une seule fois, de la manière suivante :
 
-	php7.3 cli/reprise.php --run --field
+	php7.3 cli/reprise.php --run-field
 puis : 
-	php7.3 cli/reprise.php --run --data
+	php7.3 cli/reprise.php --run-data
 						  
 ";
 
@@ -46,97 +47,87 @@ if (!empty($options['help']) ) {
     return 0;
 }
 
-if ($options['run'] ) {
-	echo "Reprise :\n"; 
-    $field = false;
-    $data = false;
-    
-    $textarea = ['up1rofpathid', 'up1specialite', 'up1nomnorme', 'up1abregenorme',  'up1rofname', 'up1diplome'];
-    
-    if (isset($options['field'])) {
-        echo "Reprise des catégories et champs\n";       
-        if ($DB->record_exists('customfield_field', [])) {
-			echo "Attention : la tables customfield_field n'est pas vide. La reprise a déjà été effectuée\n";
-			exit;
-		}
-        $time = time();
-		$systemcontext = context_system::instance();
-		$custom_info_category_course = $DB->get_records('custom_info_category', ['objectname' => 'course']);
-		if ($custom_info_category_course) {
-			foreach ($custom_info_category_course as $cat) {
-				echo $cat->name . "\n";
-				$newcat = (object)['name'=> $cat->name, 
-					'sortorder' => $cat->sortorder, 'descriptionformat' => 0, 
-					'component' => 'core_course', 'area' => 'course', 'contextid' => $systemcontext->id, 
-					'timecreated' => $time, 'timemodified' => $time
-				];
-				$categoryid = $DB->insert_record('customfield_category', $newcat);
-				
-				$custom_info_field_course = $DB->get_records('custom_info_field', ['objectname' => 'course', 'categoryid' => $cat->id]);
-				if ($custom_info_field_course) {
-					foreach ($custom_info_field_course as $field) {
-						createinfofield($field, $categoryid);
-					}
-				}	
-			}
-		}
-        
-        
-    } elseif (isset($options['data'])) {
-		echo "Reprise des données custom_info_data\n";
-		if ($DB->record_exists('customfield_data', [])) {
-			echo "Attention : la tables customfield_data n'est pas vide. La reprise a déjà été effectuée\n";
-			exit;
-		}
-		
-		$nbc = 0;
-		$oldfields = $DB->get_records('custom_info_field', ['objectname' => 'course'], '', 'id, shortname, datatype, categoryid');
-		
-		$courses = $DB->get_records('course');
-		
-		if ($courses) {
-			$heuredeb = date('H:i:s');
-			echo "On commence la reprise à $heuredeb \n";
-			foreach ($courses as $course) {
-				++$nbc;
-				$infos = $DB->get_records('custom_info_data', ['objectname' => 'course', 'objectid' => $course->id]);
-				$coursedata = ['id' => $course->id];
-		
-				foreach ($infos as $info) {
-					$name = $oldfields[$info->fieldid]->shortname;
-					if (in_array($name, $textarea)) {
-							$donnees = ['text' => trim($info->data), 'format' => 2];
-							$coursedata['customfield_' . $name . '_editor'] = $donnees;
-					} else {
-						$coursedata['customfield_' . $name] = trim($info->data);
-					}	
-				}
-				$instance = (object) $coursedata;
-				$contextcourse = \context_course::instance($instance->id);
-				
-				$handler = core_course\customfield\course_handler::create();
-				$editablefields = $handler->get_fields();
-				$fields = core_customfield\api::get_instance_fields_data($editablefields, $instance->id);
-				
-				foreach ($fields as $data) {
-					if (!$data->get('id')) {
-						$data->set('contextid', $contextcourse->id);
-					}
-					$data->instance_form_save($instance);
-				}
-				
-				echo '.';
-			}
-		}
-		echo "\nFin de la reprise : $nbc traités";
-		$heurefin = date('H:i:s');
-		echo "\nFin de la reprise à $heurefin \n";
-		
-	} else {
-		echo "Erreur : vous devez choisir l'option --field ou l'option --data \n";
+if ($options['run-field']) {
+    echo "Reprise des catégories et champs\n";       
+    if ($DB->record_exists('customfield_field', [])) {
+        echo "Attention : la tables customfield_field n'est pas vide. La reprise a déjà été effectuée\n";
         exit;
-	} 
+    }
+    $time = time();
+    $systemcontext = context_system::instance();
+    $custom_info_category_course = $DB->get_records('custom_info_category', ['objectname' => 'course']);
+    if ($custom_info_category_course) {
+        foreach ($custom_info_category_course as $cat) {
+            echo $cat->name . "\n";
+            $newcat = (object)['name'=> $cat->name,
+                'sortorder' => $cat->sortorder, 'descriptionformat' => 0,
+                'component' => 'core_course', 'area' => 'course', 'contextid' => $systemcontext->id,
+                'timecreated' => $time, 'timemodified' => $time
+            ];
+            $categoryid = $DB->insert_record('customfield_category', $newcat);
+
+            $custom_info_field_course = $DB->get_records('custom_info_field', ['objectname' => 'course', 'categoryid' => $cat->id]);
+            if ($custom_info_field_course) {
+                foreach ($custom_info_field_course as $field) {
+                    createinfofield($field, $categoryid);
+                }
+            }
+        }
+    }
 }
+
+if ($options['run-data']) {
+    echo "Reprise des données custom_info_data\n";
+    if ($DB->record_exists('customfield_data', [])) {
+        echo "Attention : la tables customfield_data n'est pas vide. La reprise a déjà été effectuée\n";
+        exit;
+    }
+
+    $nbc = 0;
+    $textarea = ['up1rofpathid', 'up1specialite', 'up1nomnorme', 'up1abregenorme',  'up1rofname', 'up1diplome'];
+
+    $oldfields = $DB->get_records('custom_info_field', ['objectname' => 'course'], '', 'id, shortname, datatype, categoryid');
+    $courses = $DB->get_records('course');
+
+    if ($courses) {
+        $heuredeb = date('H:i:s');
+        echo "On commence la reprise à $heuredeb \n";
+        foreach ($courses as $course) {
+            ++$nbc;
+            $infos = $DB->get_records('custom_info_data', ['objectname' => 'course', 'objectid' => $course->id]);
+            $coursedata = ['id' => $course->id];
+
+            foreach ($infos as $info) {
+                $name = $oldfields[$info->fieldid]->shortname;
+                if (in_array($name, $textarea)) {
+                        $donnees = ['text' => trim($info->data), 'format' => 2];
+                        $coursedata['customfield_' . $name . '_editor'] = $donnees;
+                } else {
+                    $coursedata['customfield_' . $name] = trim($info->data);
+                }
+            }
+            $instance = (object) $coursedata;
+            $contextcourse = \context_course::instance($instance->id);
+
+            $handler = core_course\customfield\course_handler::create();
+            $editablefields = $handler->get_fields();
+            $fields = core_customfield\api::get_instance_fields_data($editablefields, $instance->id);
+
+            foreach ($fields as $data) {
+                if (!$data->get('id')) {
+                    $data->set('contextid', $contextcourse->id);
+                }
+                $data->instance_form_save($instance);
+            }
+
+            echo '.';
+        }
+    }
+    echo "\nFin de la reprise : $nbc traités";
+    $heurefin = date('H:i:s');
+    echo "\nFin de la reprise à $heurefin \n";
+}
+
 
 function createinfofield($oldfield, $categoryid) {
 	
