@@ -1,9 +1,8 @@
 #!/usr/bin/env php
 <?php
 /**
- * @package      local
- * @subpackage   paris1tools
- * @copyright    (C)2013-2020 Silecs
+ * @package      local_up1_tools
+ * @copyright    (C) 2013-2020 Silecs
  */
 
 define('CLI_SCRIPT', true);
